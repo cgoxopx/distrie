@@ -90,6 +90,11 @@ namespace distrie{
             FIND_OK         =0x05,
             SEEK            =0x20,
             SEEK_OK         =0x21,
+            ITERATOR_C      =0x22,
+            ITERATOR_D      =0x23,
+            ITERATOR_GOBACK =0x24,
+            ITERATOR_OK     =0x2E,
+            ITERATOR_FAIL   =0x2F,
             SETNEXT         =0xA0
         }Method;
         
@@ -104,6 +109,10 @@ namespace distrie{
                 int32_t serverId;
                 GUID guid;
             }backup,seek;
+            struct{
+                char eof;
+                char error;
+            }status;
         }data;
         
         int32_t error;

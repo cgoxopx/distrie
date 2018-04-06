@@ -107,6 +107,7 @@ namespace distrie{
                         ofs=offset;
                     }
                 };
+                int                     fd;
                 std::list<node>         nodes;
                 std::list<char>         str;
                 std::atomic<bool>       inuse;
@@ -134,7 +135,7 @@ namespace distrie{
                 if(it.nodes.empty()){
                     if(findFirstNode(c,p)){
                         it.nodes.push_back(iterator::node());
-                        auto it2=it.nodes.rend();
+                        auto it2=it.nodes.rbegin();
                         memcpy(it2->child,buf,256);
                         it.str.push_back(c);
                     }else
@@ -150,7 +151,7 @@ namespace distrie{
             std::atomic<int>    iterator_id;
             std::mutex          iterator_locker;
             std::map<int,iterator>  iterators;
-            int create(){
+            int iterators_create(int fd){
                 auto id=++iterator_id;
                 iterator_locker.lock();
                 
@@ -162,11 +163,12 @@ namespace distrie{
                 
                 iterator & it=iterators[id];
                 it.inuse=false;
+                it.fd=fd;
                 
                 iterator_locker.unlock();
                 return id;
             }
-            void destroy(int id){
+            void iterators_destroy(int id){
                 iterator_locker.lock();
                 iterators.erase(id);
                 iterator_locker.unlock();
@@ -241,8 +243,21 @@ namespace distrie{
                         bbuf[i]=false;
                     it->second.nodes.push_back(iterator::node());
                     auto it2=it->second.nodes.begin();
-                    it2->init(*(it->second.str.rend()),bbuf,it->second.thisposition,0);
+                    it2->init(*(it->second.str.rbegin()),bbuf,it->second.thisposition,0);
                 }
+                
+                iterator_end(it->second.fd,id,it->second.eof,it->second.error);
+            }
+            inline void getAllChild_onsuccess(int id,const char * buf){
+                bool bbuf[256];
+                for(register int i=0;i<256;i++){
+                    if(buf[i]=='1'){
+                        bbuf[i]=true;
+                    }else{
+                        bbuf[i]=false;
+                    }
+                }
+                getAllChild_onsuccess(id,bbuf);
             }
             void getAllChild_onsuccess(int id,bool bbuf[]){
                 iterator_locker.lock();
@@ -258,8 +273,10 @@ namespace distrie{
                 if(!it->second.str.empty()){
                     it->second.nodes.push_back(iterator::node());
                     auto it2=it->second.nodes.begin();
-                    it2->init(*(it->second.str.rend()),bbuf,it->second.thisposition,0);
+                    it2->init(*(it->second.str.rbegin()),bbuf,it->second.thisposition,0);
                 }
+                
+                iterator_end(it->second.fd,id,it->second.eof,it->second.error);
             }
             bool seek(int id,const char * str){
                 if(str==NULL)return false;
@@ -322,6 +339,7 @@ namespace distrie{
                     }else{
                         it->second.eof=true;
                         it->second.inuse=false;
+                        iterator_end(it->second.fd,id,it->second.eof,it->second.error);
                         return true;
                     }
                 }else{
@@ -340,9 +358,110 @@ namespace distrie{
                 }
                 
             }
+            void iterator_goback(int id){
+                iterator_locker.lock();
+                auto it=iterators.find(id);
+                if(it==iterators.end()){
+                    iterator_locker.unlock();
+                    return;
+                }else{
+                    iterator_locker.unlock();
+                }
+                it->second.nodes.pop_back();
+                it->second.str.pop_back();
+            }
+            void iterator_end(int fd,int id,bool eof,bool err){
+                package buf;
+                bzero(&buf,sizeof(buf));
+                
+                buf.setWorkId(id);
+                buf.method=package::ITERATOR_OK;
+                
+                if(eof)
+                    buf.data.status.eof='1';
+                else
+                    buf.data.status.eof='0';
+                
+                if(err)
+                    buf.data.status.error='1';
+                else
+                    buf.data.status.error='0';
+                
+                ::send(fd,&buf,sizeof(buf),0);
+            }
+            void iterator_fail(int fd,int id){
+                package buf;
+                bzero(&buf,sizeof(buf));
+                
+                buf.setWorkId(id);
+                buf.method=package::ITERATOR_FAIL;
+                
+                ::send(fd,&buf,sizeof(buf),0);
+            }
             void onMsg(package * pk,int fd){
+                package buf;
+                bzero(&buf,sizeof(buf));
                 
+                buf.workId=pk->workId;
                 
+                if(pk->method==package::ITERATOR_C){
+                    buf.data.i=htonl(iterators_create(fd));
+                    buf.method=package::ITERATOR_OK;
+                    ::send(fd,&buf,sizeof(buf),0);
+                }else
+                if(pk->method==package::ITERATOR_D){
+                    iterators_destroy(pk->getWorkId());
+                    buf.method=package::ITERATOR_OK;
+                    ::send(fd,&buf,sizeof(buf),0);
+                }else
+                if(pk->method==package::SEEK){
+                    buf.data.arr[255]='\0';
+                    seek(pk->getWorkId(),buf.data.arr);
+                }else
+                if(pk->method==package::FIND){
+                    iterator_locker.lock();
+                    auto it=iterators.find(pk->getWorkId());
+                    if(it==iterators.end()){
+                        iterator_locker.unlock();
+                        iterator_fail(fd,pk->getWorkId());
+                        return;
+                    }else{
+                        iterator_locker.unlock();
+                    }
+                    auto it2=it->second.nodes.rbegin();
+                    if(it2==it->second.nodes.rend())
+                        iterator_fail(fd,pk->getWorkId());
+                    else{
+                        buf.method=package::FIND_OK;
+                        for(register int i=0;i<256;i++)
+                            if(it2->child[i])
+                                buf.data.arr[i]='1';
+                            else
+                                buf.data.arr[i]='0';
+                        ::send(fd,&buf,sizeof(buf),0);
+                    }
+                }else
+                if(pk->method==package::ITERATOR_GOBACK){
+                    iterator_goback(pk->getWorkId());
+                    buf.method=package::ITERATOR_OK;
+                    ::send(fd,&buf,sizeof(buf),0);
+                }else
+                if(pk->method==package::SEEK_OK){
+                    if(pk->error==0xffffffff)
+                        seek_onfail(pk->getWorkId());
+                    else{
+                        position p;
+                        p.first=ntohl(pk->data.seek.serverId);
+                        p.second=pk->data.seek.guid.toh();
+                        seek_onsuccess(pk->getWorkId(),p);
+                    }
+                }else
+                if(pk->method==package::FIND_OK){
+                    if(pk->error==0xffffffff)
+                        getAllChild_onfail(pk->getWorkId());
+                    else
+                        getAllChild_onsuccess(pk->getWorkId(),pk->data.arr);
+                }
             }
     };
 }
