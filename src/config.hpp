@@ -8,6 +8,7 @@ namespace distrie{
     class Config{
         public:
             int backupNum;
+            int trytimes;
             Config(){
                 FILE * fp;
                 char buf[4096];
@@ -24,6 +25,10 @@ namespace distrie{
                         
                         if(k=="backupNum")
                             iss>>this->backupNum;
+                        else
+                        if(k=="trytimes")
+                            iss>>this->trytimes;
+                        
                     }
                     fclose(fp);
                 }

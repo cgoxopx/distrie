@@ -88,6 +88,8 @@ namespace distrie{
             BACKUP          =0xB0,
             FIND            =0x04,
             FIND_OK         =0x05,
+            SEEK            =0x20,
+            SEEK_OK         =0x21,
             SETNEXT         =0xA0
         }Method;
         
@@ -101,7 +103,7 @@ namespace distrie{
                 char c;
                 int32_t serverId;
                 GUID guid;
-            }backup;
+            }backup,seek;
         }data;
         
         int32_t error;
@@ -148,8 +150,16 @@ namespace distrie{
         }
     }
     
-    void getNewPositions(std::list<position> &){
-        
+    void getNewPositions(std::list<position> & ps){
+        int r=(++count)%serverlist.servers.size();
+        std::list<int> sv;
+        position p;
+        p.second.init();
+        getNextServers(r,sv);
+        for(auto it:sv){
+            p.first=it;
+            ps.push_back(p);
+        }
     }
     
     inline void char2hex(unsigned char num,char * out){
@@ -216,7 +226,7 @@ namespace distrie{
         out[15]=strs[p];
     }
     
-    inline unsigned char hex24bit(unsigned char c){
+    inline uint64_t hex24bit(unsigned char c){
         if(c>='0' && c<='9')
             return c-'0';
         else
@@ -229,8 +239,39 @@ namespace distrie{
             return 0;
     }
     
-    inline int32_t hex2int32(const unsigned char *){}
-    inline int64_t hex2int64(const unsigned char *){}
+    inline int32_t hex2int32(const unsigned char * str){
+        return (
+            (hex24bit(str[0])<<28) |
+            (hex24bit(str[1])<<24) |
+            (hex24bit(str[2])<<20) |
+            (hex24bit(str[3])<<16) |
+            (hex24bit(str[4])<<12) |
+            (hex24bit(str[5])<<8 ) |
+            (hex24bit(str[6])<<4 ) |
+            (hex24bit(str[7])    )
+        );
+    }
+    inline int64_t hex2int64(const unsigned char * str){
+        int64_t num=(
+            (hex24bit(str[0] )<<60) |
+            (hex24bit(str[1] )<<56) |
+            (hex24bit(str[2] )<<52) |
+            (hex24bit(str[3] )<<48) |
+            (hex24bit(str[4] )<<44) |
+            (hex24bit(str[5] )<<40) |
+            (hex24bit(str[6] )<<36) |
+            (hex24bit(str[7] )<<32) |
+            (hex24bit(str[8] )<<28) |
+            (hex24bit(str[9] )<<24) |
+            (hex24bit(str[10])<<20) |
+            (hex24bit(str[11])<<16) |
+            (hex24bit(str[12])<<12) |
+            (hex24bit(str[13])<<8 ) |
+            (hex24bit(str[14])<<4 ) |
+            (hex24bit(str[15])    )
+        );
+        return num;
+    }
     
     
     inline int32_t hex2int32(const char * s){
@@ -240,7 +281,17 @@ namespace distrie{
         return hex2int64((const unsigned char *)s);
     }
     void getKey(char * s,int32_t a,int64_t b){
+        char * p=s;
+        *p='#';
+        ++p;
         
+        int322hex(a,p);
+        p+=8;
+        
+        int642hex(b,p);
+        p+=16;
+        
+        *p='\0';
     }
     void getKey(char * s,int32_t a,int64_t b,char c){
         char * p=s;

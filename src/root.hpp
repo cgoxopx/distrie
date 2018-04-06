@@ -10,6 +10,9 @@ namespace distrie{
                 std::list<position> next;
             };
             std::map<char,element> nodes;
+            bool findFirstNode(char c,position & ret,bool *){
+                
+            }
             void getFirstNodeOfElm(char c,position & ret){
                 auto it=nodes.find(c);
                 if(it==nodes.end()){

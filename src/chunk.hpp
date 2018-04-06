@@ -22,8 +22,24 @@ namespace distrie{
                 if(nextServerFd!=-1)
                     close(nextServerFd);
             }
-            void reconnect(){
+            void getAllId(){
+                std::string v;
+                readDB("_id_workIdBuf",v);  workIdBuf=atoi(v.c_str());  v.clear();
+                readDB("_id_count",v);      count=atoi(v.c_str());      v.clear();
+            }
+            void saveAllId(){
+                char buf[128];
+                int ibuf;
+                ibuf=workIdBuf; snprintf(buf,128,"%d",ibuf);writeDB("_id_workIdBuf",buf);
+                ibuf=count;     snprintf(buf,128,"%d",ibuf);writeDB("_id_count",buf);
+            }
+            inline void reconnect(){
                 if(nextServerId==-1)return;
+                nextServerFd=serverlist.connect(nextServerId);
+            }
+            inline void reconnect_safe(){
+                if(nextServerFd==-1)
+                    reconnect();
             }
             
             struct backupWork{
@@ -133,7 +149,6 @@ namespace distrie{
                 return false;
             }
             inline void onMsg_find(package * pk,int fd){
-                position p;
                 package buf;
                 
                 if(pk->getServerId()!=this->serverId)
@@ -148,8 +163,27 @@ namespace distrie{
                 
                 buf.method=package::FIND_OK;
                 buf.workId=pk->workId;
-                buf.setServerId(p.first);
-                buf.setDataId(p.second);
+                
+                ::send(fd,&buf,sizeof(buf),0);
+            }
+            inline void onMsg_seek(package * pk,int fd){
+                position p;
+                package buf;
+                
+                if(pk->getServerId()!=this->serverId)
+                    return;
+                
+                bzero(&buf,sizeof(buf));
+                
+                if(findNode(pk->getDataId(),pk->data.c,p,false)){
+                    pk->data.seek.serverId  =htonl(p.first);
+                    pk->data.seek.guid      =p.second.ton();
+                    pk->error=0x00000000;
+                }else
+                    pk->error=0xffffffff;
+                
+                buf.method=package::SEEK_OK;
+                buf.workId=pk->workId;
                 
                 ::send(fd,&buf,sizeof(buf),0);
             }
@@ -206,6 +240,9 @@ namespace distrie{
                 else
                 if(pk->method==package::FIND)
                     onMsg_find(pk,fd);
+                else
+                if(pk->method==package::SEEK)
+                    onMsg_seek(pk,fd);
                 else
                 if(pk->method==package::SETNEXT){
                     if(nextServerFd!=-1){
@@ -326,7 +363,7 @@ namespace distrie{
                 writeDB(buf,val.c_str());
                 return false;
             }
-            bool findNode(GUID dataId,char c,position & id,bool getfirst=true){
+            bool findNode(const GUID & dataId,char c,position & id,bool getfirst=true){
                 std::list<int> s;
                 std::string v;
                 char buf[512];

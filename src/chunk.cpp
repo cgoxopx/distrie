@@ -70,6 +70,7 @@ void backup(){
     printf("[backup] Quit \n");
 }
 void serve(){
+    sleep(2);
     printf("[serve] start \n");
     signal(SIGPIPE,[](int){});
     signal(2,[](int){
@@ -81,9 +82,20 @@ void serve(){
     
     srv.run(13579);
 }
+void autosave(){
+    printf("[autosave] start \n");
+    while(chk.running){
+        chk.saveAllId();
+        chk.reconnect_safe();
+        sleep(2);
+    }
+    printf("[autosave] stop \n");
+}
 int main(){
-    std::thread t2(serve);
-    std::thread t1(backup);
+    std::thread t1(serve);
+    std::thread t2(backup);
+    std::thread t3(autosave);
     t1.join();
     t2.join();
+    t3.join();
 }
