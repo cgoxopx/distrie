@@ -22,7 +22,8 @@ public:
             }
         }
         void quit() {
-
+            if(fd==chk.nextServerFd)
+                chk.reconnect();
         }
         void init(int ifd) {
             reset();

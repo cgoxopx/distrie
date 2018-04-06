@@ -9,12 +9,6 @@
 #include <string>
 #include <stdio.h>
 #include <ctype.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <sys/file.h>
 #include <ctype.h>
 #include <strings.h>
 #include <string.h>
@@ -23,60 +17,245 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 #include <mutex>
+#include <atomic>
 #include "config.hpp"
+#include "serverlist.hpp"
 namespace distrie{
+    
+    std::atomic<int64_t> count;
+    
+    // host long 64 to network
+    uint64_t   hl64ton(uint64_t   host){
+        uint64_t   ret = 0;
+        uint32_t   high,low;
+        low    =   host & 0xFFFFFFFF;
+        high   =   (host >> 32) & 0xFFFFFFFF;
+        low    =   htonl(low);
+        high   =   htonl(high);
+        ret    =   low;
+        ret    <<= 32;
+        ret   |=   high;
+        return     ret;
+    }
+
+    //network to host long 64
+    uint64_t  ntohl64(uint64_t   host){
+        uint64_t   ret = 0;
+        uint32_t   high,low;
+        low    =   host & 0xFFFFFFFF;
+        high   =   (host >> 32) & 0xFFFFFFFF;
+        low    =   ntohl(low);   
+        high   =   ntohl(high);
+        ret    =   low;
+        ret    <<= 32;
+        ret   |=   high;
+        return     ret;
+    }
+    
+    struct GUID{
+        int32_t host;
+        int64_t id;
+        GUID()=default;
+        GUID(const GUID &)=default;
+        GUID & operator=(const GUID & ig){
+            host=ig.host;
+            id=ig.id;
+            return *this;
+        }
+        void init(){
+            host=serverlist.myId;
+            id=++count;
+        }
+        inline GUID ton()const{
+            GUID r;
+            r.host=htonl(host);
+            r.id=hl64ton(id);
+            return r;
+        }
+        inline GUID toh()const{
+            GUID r;
+            r.host=ntohl(host);
+            r.id=ntohl64(id);
+            return r;
+        }
+    };
+    
     struct package{
         typedef enum{
-            INSERT      =0x01,
-            INSERT_OK   =0x02,
-            BACKUP      =0x03,
-            FIND        =0x04,
-            FIND_OK     =0x05,
-            SETNEXT     =0xA0
+            INSERT          =0x01,
+            INSERT_BACKUP   =0xB1,
+            INSERT_OK       =0x02,
+            BACKUP          =0xB0,
+            FIND            =0x04,
+            FIND_OK         =0x05,
+            SETNEXT         =0xA0
         }Method;
         
         Method  method;
+        
         union{
             char c;
             int32_t i;
-            bool arr[256];
+            char arr[256];
+            struct{
+                char c;
+                int32_t serverId;
+                GUID guid;
+            }backup;
         }data;
+        
+        int32_t error;
+        
         int32_t workId;
         int32_t serverId;
-        int64_t dataId;
+        GUID    dataId;
         int32_t backup;
-        int getWorkId(){
-            
+        inline int32_t getWorkId()const{
+            return ntohl(workId);
         }
-        int getServerId(){
-            
+        inline int32_t getServerId()const{
+            return ntohl(serverId);
         }
-        int getBackupNum(){
-            
+        inline int32_t getBackupNum()const{
+            return ntohl(backup);
         }
-        int64_t getDataId(){
-            
+        inline GUID getDataId()const{
+            return dataId.toh();
         }
-        void setWorkId(int){
-            
+        inline void setWorkId(int32_t n){
+            this->workId=htonl(n);
         }
-        void setServerId(int){
-            
+        inline void setServerId(int32_t n){
+            this->serverId=htonl(n);
         }
-        void setBackupNum(int){
-            
+        inline void setBackupNum(int32_t n){
+            this->backup=htonl(n);
         }
-        void setDataId(int64_t){
-            
+        inline void setDataId(const GUID & n){
+            this->dataId=n.ton();
         }
     };
-    typedef std::pair<int32_t,int64_t> position;
+    typedef std::pair<int32_t,GUID> position;
+    
+    void getNextServers(int begin,std::list<int> & s){
+        if(serverlist.servers.empty())return;
+        int id=begin;
+        int bnum=config.backupNum>serverlist.servers.size() ? serverlist.servers.size() : config.backupNum;
+        for(int i=0;i<bnum;i++){
+            s.push_back(id);
+            ++id;
+            if(id>=serverlist.servers.size())id=0;
+        }
+    }
     
     void getNewPositions(std::list<position> &){
         
     }
-    int getFdByServerId(int id){
+    
+    inline void char2hex(unsigned char num,char * out){
+        static const char strs[]="0123456789abcdef";
+        unsigned char h=(num>>4) & 0x0f;
+        unsigned char l=(num   ) & 0x0f;
+        out[0]=strs[h];
+        out[1]=strs[l];
+    }
+    
+    inline void int322hex(uint32_t num,char * out){
+        static const char strs[]="0123456789abcdef";
+        unsigned char a=(num>>28) & 0x0f;
+        unsigned char b=(num>>24) & 0x0f;
+        unsigned char c=(num>>20) & 0x0f;
+        unsigned char d=(num>>16) & 0x0f;
+        unsigned char e=(num>>12) & 0x0f;
+        unsigned char f=(num>>8)  & 0x0f;
+        unsigned char g=(num>>4)  & 0x0f;
+        unsigned char h=(num   )  & 0x0f;
+        out[0]=strs[a];
+        out[1]=strs[b];
+        out[2]=strs[c];
+        out[3]=strs[d];
+        out[4]=strs[e];
+        out[5]=strs[f];
+        out[6]=strs[g];
+        out[7]=strs[h];
+    }
+    
+    inline void int642hex(uint64_t num,char * out){
+        static const char strs[]="0123456789abcdef";
+        unsigned char a=(num>>60) & 0x0f;
+        unsigned char b=(num>>56) & 0x0f;
+        unsigned char c=(num>>52) & 0x0f;
+        unsigned char d=(num>>48) & 0x0f;
+        unsigned char e=(num>>44) & 0x0f;
+        unsigned char f=(num>>40) & 0x0f;
+        unsigned char g=(num>>36) & 0x0f;
+        unsigned char h=(num>>32) & 0x0f;
+        unsigned char i=(num>>28) & 0x0f;
+        unsigned char j=(num>>24) & 0x0f;
+        unsigned char k=(num>>20) & 0x0f;
+        unsigned char l=(num>>16) & 0x0f;
+        unsigned char m=(num>>12) & 0x0f;
+        unsigned char n=(num>>8)  & 0x0f;
+        unsigned char o=(num>>4)  & 0x0f;
+        unsigned char p=(num   )  & 0x0f;
+        out[0] =strs[a];
+        out[1] =strs[b];
+        out[2] =strs[c];
+        out[3] =strs[d];
+        out[4] =strs[e];
+        out[5] =strs[f];
+        out[6] =strs[g];
+        out[7] =strs[h];
+        out[8] =strs[i];
+        out[9] =strs[j];
+        out[10]=strs[k];
+        out[11]=strs[l];
+        out[12]=strs[m];
+        out[13]=strs[n];
+        out[14]=strs[o];
+        out[15]=strs[p];
+    }
+    
+    inline unsigned char hex24bit(unsigned char c){
+        if(c>='0' && c<='9')
+            return c-'0';
+        else
+        if(c>='a' && c<='f')
+            return c-'a'+10;
+        else
+        if(c>='A' && c<='F')
+            return c-'A'+10;
+        else
+            return 0;
+    }
+    
+    inline int32_t hex2int32(const unsigned char *){}
+    inline int64_t hex2int64(const unsigned char *){}
+    
+    
+    inline int32_t hex2int32(const char * s){
+        return hex2int32((const unsigned char *)s);
+    }
+    inline int64_t hex2int64(const char * s){
+        return hex2int64((const unsigned char *)s);
+    }
+    void getKey(char * s,int32_t a,int64_t b){
         
+    }
+    void getKey(char * s,int32_t a,int64_t b,char c){
+        char * p=s;
+        *p='#';
+        ++p;
+        
+        int322hex(a,p);
+        p+=8;
+        
+        int642hex(b,p);
+        p+=16;
+        
+        char2hex(c,p);
+        p+=2;
+        *p='\0';
     }
 }
 #endif

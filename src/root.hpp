@@ -13,7 +13,7 @@ namespace distrie{
             void getFirstNodeOfElm(char c,position & ret){
                 auto it=nodes.find(c);
                 if(it==nodes.end()){
-                    auto q=nodes[c];
+                    element & q=nodes[c];
                     getNewPositions(q.next);
                     ret=*(q.next.begin());
                 }else{
@@ -23,7 +23,7 @@ namespace distrie{
             const element & getElement(char c){
                 auto it=nodes.find(c);
                 if(it==nodes.end()){
-                    auto q=nodes[c];
+                    element & q=nodes[c];
                     getNewPositions(q.next);
                     return nodes[c];
                 }else{

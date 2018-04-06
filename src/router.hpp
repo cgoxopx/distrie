@@ -22,6 +22,9 @@ namespace distrie{
             std::map<int,addSession> addSessions;
             std::atomic<int> sessid;
             
+            int getFdByServerId(int id){
+                
+            }
             void writeChar(
                 char c  ,
                 const position & p,
@@ -94,11 +97,14 @@ namespace distrie{
                     position p;
                     std::list<char> wds;
                     std::list<char>::iterator it;
-                }
+                };
                 std::list<node> str;
                 bool haveVal(){
                     auto it=str.rend();
-                    if(it->it)
+                    if(*(it->it)=='\0')
+                        return true;
+                    else
+                        return false;
                 }
             };
     };
